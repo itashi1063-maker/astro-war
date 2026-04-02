@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>أسترو بوت - معركة الـ 10 العظمى</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #020205; font-family: sans-serif; touch-action: none; -webkit-user-select: none; }
+        canvas { display: block; }
+        
+        .overlay {
+            position: absolute; inset: 0; background: radial-gradient(circle, #1a1a35, #020205);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 1000; color: white; text-align: center;
+        }
+        .btn-menu {
+            background: #00a2ff; border: none; color: white; padding: 15px 30px;
+            margin: 10px; border-radius: 12px; font-size: 18px; font-weight: bold;
+            cursor: pointer; width: 220px;
+        }
+
+        #ui {
+            position: absolute; top: 10px; left: 10px; color: white;
+            background: rgba(0, 40, 80, 0.7); padding: 12px; border-radius: 12px;
+            border: 2px solid #00a2ff; pointer-events: none; z-index: 100; display: none;
+        }
+        .coin-text { font-size: 20px; color: #ffd700; font-weight: bold; }
+        
+        #shop {
+            position: absolute; top: 10px; right: 10px; display: none; 
+            flex-direction: column; gap: 5px; z-index: 150; width: 170px;
+        }
+        .upgrade-btn {
+            background: rgba(0, 200, 255, 0.15); border: 1px solid #00a2ff; color: white;
+            padding: 6px; border-radius: 6px; font-size: 11px; cursor: pointer; text-align: right;
+        }
+        .upgrade-btn:disabled { opacity: 0.5; filter: grayscale(1); }
+        .upgrade-btn b { color: #ffd700; }
+        
+        .nuke-btn { background: rgba(255, 50, 50, 0.2); border-color: #ff4444; }
+
+        #mobile-controls {
+            position: absolute; bottom: 20px; width: 100%;
+            display: none; justify-content: space-between; padding: 0 25px;
+            box-sizing: border-box; z-index: 200; pointer-events: none;
+        }
+        .btn-control {
+            width: 75px; height: 75px; background: rgba(255, 255, 255, 0.1);
+            border: 2px solid #00a2ff; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 28px; pointer-events: auto;
+        }
+        
+        #flash { position: absolute; inset: 0; background: white; opacity: 0; pointer-events: none; z-index: 2000; }
+    </style>
+</head>
+<body>
+
+<div id="flash"></div>
+
+<div id="start-screen" class="overlay">
+    <h1 style="color: #00a2ff; font-size: 40px;">أسترو بوت</h1>
+    <p>الحد الأقصى للأعداء: 10</p>
+    <button class="btn-menu" onclick="startGame('pc')">🖱️ ماوس وكيبورد</button>
+    <button class="btn-menu" onclick="startGame('mobile')">📱 لمس بالهاتف</button>
+</div>
+
+<div id="game-over-screen" class="overlay" style="display: none; background: rgba(0,0,0,0.9);">
+    <h1 style="color: #ff4444;">تم تدميرك!</h1>
+    <button id="revive-btn" class="btn-menu" style="background:#ffcc00; color:black;" onclick="revivePlayer()">❤️ إحياء (100 كوين)</button>
+    <button class="btn-menu" onclick="location.reload()">🏠 القائمة الرئيسية</button>
+</div>
+
+<div id="ui">
+    <div class="coin-text">💰 <span id="coins-val">0</span> | 💀 <span id="kill-count">0</span></div>
+    <div class="coin-text" style="font-size: 14px; color: #ff4444;">🤖 بوتات: <span id="bot-count">3</span>/10</div>
+    <div style="width: 160px; height: 8px; background: #222; border-radius: 4px; margin-top: 5px; overflow: hidden;">
+        <div id="hp-inner" style="width: 100%; height: 100%; background: #00ff88; transition: 0.3s;"></div>
+    </div>
+</div>
+
+<div id="shop">
+    <button class="upgrade-btn" onclick="upgrade('power')">⚔️ قوة الهجوم <b>(15)</b></button>
+    <button class="upgrade-btn" onclick="upgrade('speed')">👟 سرعة المشي <b>(20)</b></button>
+    <button class="upgrade-btn" onclick="upgrade('shield')">🛡️ الدرع <b>(25)</b></button>
+    <button class="upgrade-btn" onclick="upgrade('loot')">💎 كوينز + <b>(30)</b></button>
+    <button class="upgrade-btn nuke-btn" id="nuke-btn" onclick="useNuke()">☢️ مسح البوتات <b id="nuke-cost">(1000)</b></button>
+</div>
+
+<div id="mobile-controls">
+    <div style="display: flex; gap: 10px;">
+        <div class="btn-control" id="btnLeft">←</div>
+        <div class="btn-control" id="btnRight">→</div>
+    </div>
+    <div class="btn-control" id="btnJump">↑</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let controlMode = 'pc', isGameOver = false;
+
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.onresize = resize; resize();
+
+const imgs = {
+    rL: new Image(), rR: new Image(), jR: new Image(), jL: new Image(), eR: new Image(), eL: new Image()
+};
+imgs.rL.src = 'https://i.postimg.cc/pLQ0C4bJ/21212.png'; 
+imgs.rR.src = 'https://i.postimg.cc/dV7Qpbj9/Gemini-Generated-Image-s99tmrs99tmrs99t.png'; 
+imgs.jR.src = 'https://i.postimg.cc/d3twBp0d/Gemini-Generated-Image-ylmbl0ylmbl0ylmb.png';
+imgs.jL.src = 'https://i.postimg.cc/xdDQ7cCv/1212122121212.png';
+imgs.eR.src = 'https://i.postimg.cc/CM6WXzrM/Gemini-Generated-Image-xkz2euxkz2euxkz2.png';
+imgs.eL.src = 'https://i.postimg.cc/mZq5VKhb/Gemini-Generated-Image-xkz2euxkz2euxkz2123144.png';
+
+let coins = 0, kills = 0, killStreak = 0;
+let playerDamage = 10, playerSpeed = 7, shieldLevel = 0, coinBonus = 5;
+let nukeUnlocked = false, nukeReady = true;
+let totalUpgrades = 0, enemyBaseSpeed = 6;
+let bullets = [], enemies = [], gravity = 0.6, groundHeight = 135;
+const input = { left: false, right: false, jump: false };
+
+function startGame(mode) {
+    controlMode = mode;
+    isGameOver = false;
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('ui').style.display = 'block';
+    document.getElementById('shop').style.display = 'flex';
+    if(mode === 'mobile') document.getElementById('mobile-controls').style.display = 'flex';
+    enemies = []; bullets = [];
+    for(let i=0; i<3; i++) enemies.push(new Enemy());
+    updateBotCount();
+    requestAnimationFrame(gameLoop);
+}
+
+function updateBotCount() {
+    document.getElementById('bot-count').innerText = enemies.length;
+}
+
+function upgrade(type) {
+    let cost = {power:15, speed:20, shield:25, loot:30}[type];
+    if (coins >= cost) {
+        coins -= cost;
+        totalUpgrades++;
+        if (type === 'power') playerDamage += 5;
+        if (type === 'speed') playerSpeed += 1;
+        if (type === 'shield') shieldLevel += 1;
+        if (type === 'loot') coinBonus += 3;
+        
+        // نظام الصعوبة مع احترام الحد (10)
+        if (totalUpgrades % 2 === 0) {
+            if (enemies.length < 10) {
+                enemies.push(new Enemy());
+            } else {
+                enemyBaseSpeed += 0.8; // إذا وصلوا لـ 10، نزيد سرعتهم بدلاً من عددهم
+            }
+        }
+        updateBotCount();
+        document.getElementById('coins-val').innerText = coins;
+    }
+}
+
+function useNuke() {
+    if (!nukeUnlocked && coins >= 1000) {
+        coins -= 1000; nukeUnlocked = true;
+        document.getElementById('nuke-cost').innerText = "جاهز";
+        document.getElementById('coins-val').innerText = coins;
+        executeNuke();
+    } else if (nukeUnlocked && nukeReady) {
+        executeNuke();
+    }
+}
+
+function executeNuke() {
+    nukeReady = false;
+    document.getElementById('flash').style.opacity = "1";
+    setTimeout(() => document.getElementById('flash').style.opacity = "0", 150);
+
+    let count = enemies.length;
+    kills += count;
+    coins += count * coinBonus;
+    enemies = []; 
+    
+    setTimeout(() => {
+        let respawnCount = Math.min(10, 3 + Math.floor(totalUpgrades/2));
+        for(let i=0; i < respawnCount; i++) enemies.push(new Enemy());
+        updateBotCount();
+    }, 100);
+
+    document.getElementById('kill-count').innerText = kills;
+    document.getElementById('coins-val').innerText = coins;
+
+    let cooldown = 3;
+    const btn = document.getElementById('nuke-btn');
+    btn.disabled = true;
+    const timer = setInterval(() => {
+        cooldown--;
+        btn.innerHTML = `⌛ (${cooldown})`;
+        if (cooldown <= 0) {
+            clearInterval(timer); nukeReady = true; btn.disabled = false;
+            btn.innerHTML = `☢️ مسح البوتات <b>(جاهز)</b>`;
+        }
+    }, 1000);
+}
+
+class Astro {
+    constructor() {
+        this.w = 110; this.h = 130;
+        this.x = canvas.width/2 - 55;
+        this.y = canvas.height - groundHeight - this.h;
+        this.vx = 0; this.vy = 0;
+        this.hp = 100;
+        this.grounded = false;
+        this.facing = 'right';
+    }
+    draw() {
+        let img = (this.facing === 'right') ? imgs.rR : imgs.rL;
+        if (!this.grounded) img = (this.facing === 'right') ? imgs.jR : imgs.jL;
+        if (img.complete) ctx.drawImage(img, this.x, this.y, this.w, this.h);
+        if (shieldLevel > 0) {
+            ctx.strokeStyle = "cyan"; ctx.lineWidth = 3;
+            ctx.strokeRect(this.x-5, this.y-5, this.w+10, this.h+10);
+        }
+    }
+    update() {
+        if (input.left) { this.vx = -playerSpeed; this.facing = 'left'; }
+        else if (input.right) { this.vx = playerSpeed; this.facing = 'right'; }
+        else this.vx *= 0.8;
+        if (input.jump && this.grounded) { this.vy = -18; this.grounded = false; }
+        this.vy += gravity; this.x += this.vx; this.y += this.vy;
+        if (this.y + this.h > canvas.height - groundHeight) {
+            this.y = canvas.height - groundHeight - this.h;
+            this.vy = 0; this.grounded = true;
+        }
+        this.x = Math.max(0, Math.min(canvas.width - this.w, this.x));
+    }
+}
+
+class Enemy {
+    constructor() {
+        this.w = 80; this.h = 80;
+        this.x = Math.random() * (canvas.width - 100);
+        this.y = Math.random() * (canvas.height / 3);
+        this.hp = 30;
+        this.vx = (Math.random() - 0.5) * enemyBaseSpeed;
+        this.vy = (Math.random() - 0.5) * (enemyBaseSpeed/1.5);
+        this.shootCD = 140 + Math.random() * 100;
+    }
+    draw() {
+        let img = (this.vx >= 0) ? imgs.eR : imgs.eL;
+        if (img.complete) ctx.drawImage(img, this.x, this.y, this.w, this.h);
+        ctx.fillStyle = "#f00"; ctx.fillRect(this.x, this.y - 15, (this.hp/30)*this.w, 6);
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        if (this.x < 0 || this.x > canvas.width - this.w) this.vx *= -1;
+        if (this.y < 20 || this.y > canvas.height - groundHeight - 150) this.vy *= -1;
+        this.shootCD--;
+        if (this.shootCD <= 0) {
+            bullets.push(new Projectile(this.x+40, this.y+40, player.x+55, player.y+65, "enemy"));
+            this.shootCD = 170 + Math.random() * 100;
+        }
+    }
+}
+
+class Projectile {
+    constructor(x, y, tx, ty, owner) {
+        this.x = x; this.y = y; this.owner = owner;
+        const angle = Math.atan2(ty - y, tx - x);
+        const speed = (owner === 'player') ? 20 : 6;
+        this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+    }
+    draw() {
+        ctx.fillStyle = (this.owner === 'player') ? "#00f2ff" : "#ffaa00";
+        ctx.beginPath(); ctx.arc(this.x, this.y, 8, 0, 7); ctx.fill();
+    }
+    update() { this.x += this.vx; this.y += this.vy; }
+}
+
+const player = new Astro();
+
+function gameLoop() {
+    if (isGameOver) return;
+    ctx.fillStyle = "#0a0a20"; ctx.fillRect(0,0,canvas.width, canvas.height);
+    ctx.fillStyle = "#1a1a35"; ctx.fillRect(0, canvas.height-groundHeight, canvas.width, groundHeight);
+    player.update(); player.draw();
+
+    bullets.forEach((b, bi) => {
+        b.update(); b.draw();
+        if (b.owner === 'enemy') {
+            if (b.x > player.x && b.x < player.x + player.w && b.y > player.y && b.y < player.y + player.h) {
+                player.hp -= Math.max(2, 10 - shieldLevel);
+                document.getElementById('hp-inner').style.width = player.hp + "%";
+                bullets.splice(bi, 1);
+                if (player.hp <= 0) { isGameOver = true; document.getElementById('game-over-screen').style.display = 'flex'; }
+            }
+        }
+    });
+
+    enemies.forEach((en, ei) => {
+        en.update(); en.draw();
+        bullets.forEach((b, bi) => {
+            if (b.owner === 'player' && b.x > en.x && b.x < en.x + en.w && b.y > en.y && b.y < en.y + en.h) {
+                en.hp -= playerDamage; bullets.splice(bi, 1);
+                if (en.hp <= 0) { 
+                    enemies.splice(ei, 1); coins += coinBonus; kills++; killStreak++;
+                    if (killStreak >= 3) { player.hp = Math.min(100, player.hp + 20); killStreak = 0; }
+                    document.getElementById('kill-count').innerText = kills;
+                    document.getElementById('coins-val').innerText = coins;
+                    // إضافة بوت جديد فقط إذا كان أقل من 10
+                    if (enemies.length < 10) enemies.push(new Enemy());
+                    updateBotCount();
+                }
+            }
+        });
+    });
+    requestAnimationFrame(gameLoop);
+}
+
+function revivePlayer() {
+    if (coins >= 100) {
+        coins -= 100; player.hp = 100; isGameOver = false;
+        document.getElementById('hp-inner').style.width = "100%";
+        document.getElementById('game-over-screen').style.display = 'none';
+        document.getElementById('coins-val').innerText = coins;
+        requestAnimationFrame(gameLoop);
+    }
+}
+
+const setupBtn = (id, key) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); input[key] = true; }, {passive: false});
+    el.addEventListener('touchend', (e) => { e.preventDefault(); input[key] = false; }, {passive: false});
+};
+setupBtn('btnLeft', 'left'); setupBtn('btnRight', 'right'); setupBtn('btnJump', 'jump');
+
+window.addEventListener('touchstart', (e) => {
+    if (isGameOver) return;
+    for (let t of e.changedTouches) {
+        if (t.clientY < canvas.height - 150 && t.clientX < canvas.width - 180) {
+            bullets.push(new Projectile(player.x + player.w/2, player.y + player.h/2, t.clientX, t.clientY, "player"));
+        }
+    }
+}, {passive: false});
+
+window.onmousedown = (e) => {
+    if (controlMode === 'pc' && !isGameOver && e.clientX < canvas.width - 180) {
+        bullets.push(new Projectile(player.x + player.w/2, player.y + player.h/2, e.clientX, e.clientY, "player"));
+    }
+};
+
+window.onkeydown = (e) => {
+    if(e.code === 'KeyA') input.left = true;
+    if(e.code === 'KeyD') input.right = true;
+    if(e.code === 'KeyW') input.jump = true;
+};
+window.onkeyup = (e) => {
+    if(e.code === 'KeyA') input.left = false;
+    if(e.code === 'KeyD') input.right = false;
+    if(e.code === 'KeyW') input.jump = false;
+};
+</script>
+</body>
+</html>
